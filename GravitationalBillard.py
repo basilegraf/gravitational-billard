@@ -61,14 +61,18 @@ def ballBallCollison(pa, va, pb, vb, R, collisionType):
     vb = np.asarray(vb)
     d = pa - pb
     w = va - vb
+        
     A = np.dot(w, w)
     B = 2 * np.dot(d, w)
     C = np.dot(d, d) - 4 * R**2
     discr = B**2 - 4 * A * C
     
+    if (A == 0.0):
+        return (np.Inf, pa, pb)
+    
     t1, t2 = 0, 0
     if discr < 0:
-        return (np.Inf,)
+        return (np.Inf, pa, pb)
     else:
         t1 = (-B + np.sqrt(discr)) / (2 * A)
         t2 = (-B - np.sqrt(discr)) / (2 * A)
@@ -76,7 +80,7 @@ def ballBallCollison(pa, va, pb, vb, R, collisionType):
     t = 0
     if collisionType == CollisionType.EARLIEST:
         if max(t1, t2) < 0.0:
-            return (np.Inf,)
+            return (np.Inf, pa, pb)
         else:
             t = min(t1, t2) if min(t1, t2) >= 0.0 else max(t1, t2)
     
@@ -100,47 +104,56 @@ class CollisionBand(Enum):
     BOTTOM = 4
     NONE = 5
     
-# collision time and poition between ball and band on 2Wx2H billard centered at (0,0)
-def ballBandCollision(p, v, W, H):
+# collision time and position between ball and band on 2Wx2H billard centered at (0,0)
+def ballBandCollision(p, v, W, H, collisionType):
     p = np.asarray(p)
     v = np.asarray(v)
-    band = CollisionBand.NONE
-    t = np.Inf
     
-    if abs(p[0]) > W or abs(p[1]) > H:
-        return (np.Inf, band)
+    # Find intersection with edge defined by position q and direction d
+    def intersection(q, d):
+        q = np.asarray(q)
+        d = np.asarray(d)
+        A = np.array([v, -d]).transpose()
+        b = q - p
+        x = np.linalg.solve(A, b)
+        tSol = x[0]
+        pSol = p + v * tSol
+        return (pSol, tSol)
     
-    if v[0] >= 0:
-        tRight = (W - p[0]) / v[0]
-        if tRight < t:
-            band = CollisionBand.RIGHT
-            t = tRight
-    else:
-        tLeft = (-W - p[0]) / v[0]
-        if tLeft < t:
-            band = CollisionBand.LEFT
-            t = tLeft
+    pRIGHT,  tRIGHT  = intersection([ W,  0], [0,1])
+    pTOP,    tTOP    = intersection([ 0,  W], [1,0])
+    pLEFT,   tLEFT   = intersection([-W,  0], [0,1])
+    pBOTTOM, tBOTTOM = intersection([ 0, -W], [1,0])
+    tList = np.array([tRIGHT, tTOP, tLEFT, tBOTTOM])
+    
+    indMin = -1
+    t = 0
+    if collisionType == CollisionType.EARLIEST:       
+        tList[tList < 0] = np.Inf
+        indMin = np.where(tList == np.amin(tList))[0][0]
+        t = tList[indMin]  
+    else: # CLOSEST
+        tListAbs = np.abs(tList)
+        indMin = np.where(tListAbs == np.amin(tListAbs))[0][0]
+        t = tList[indMin]
         
-    if v[1] >= 0:
-        tTop = (H - p[1]) / v[1]
-        if tTop < t:
-            band = CollisionBand.TOP
-            t = tTop
+    if (t < np.Inf):
+        pColl = p + v * t
     else:
-        tBottom = (-H - p[1]) / v[1]
-        if tBottom < t:
-            band = CollisionBand.BOTTOM
-            t = tBottom
+        pColl = p
             
-    pColl = p + v * t
-    return (t, pColl, band)
-        
+    if ((indMin == 0) or (indMin == 2)):
+        return (t, pColl, [0,1])
+    else:
+        return (t, pColl, [1,0])
+    
+       
     
 p = np.array([0.1, 0.1])
 v = np.array([0.8, 0.1])
 W = 0.4
 H = 0.7
-ballBandCollision(p, v, W, H)    
+ballBandCollision(p, v, W, H, CollisionType.EARLIEST)    
 
 
 def speedReflexionBand(v, ax):
@@ -200,6 +213,7 @@ class billard:
                 y += np.sqrt(3/4) * d
                 
     def ballBallCollison(self, ba, bb):
+        A =  np.array([[0,1],[-1,0]])
         # Collision between balls with gravity
         eps = self.G * self.M
         collNoGrav = ballBallCollison(ba.p, ba.v, bb.p, bb.v, self.R, CollisionType.EARLIEST) # returns (t, paColl, pbColl)
@@ -212,18 +226,17 @@ class billard:
                 bbEnd = copy(bb)
                 baEnd.p0 = collNoGrav[1]
                 bbEnd.p0 = collNoGrav[2]
-                baEnd.v, bbEnd.v = speedReflexionBallBall(baEnd.v, bbEnd.v, bbEnd.p0 - baEnd.p0)
+                baEnd.v, bbEnd.v = speedReflexionBallBall(baEnd.v, bbEnd.v, np.matmul(A, bbEnd.p0 - baEnd.p0))
                 return (T, baEnd, bbEnd)
             else:
                 (T, pa, pb) = collNoGrav # collision approximated without gravity
                 _, dpa, dva = simulate(ba.p, ba.v, self.c, T) # returns (time, pos, speed)
                 _, dpb, dvb = simulate(bb.p, bb.v, self.c, T) # returns (time, pos, speed)
-                pa += eps * dpa # corrected position a
-                pb += eps * dpb # corrected position b
-                va = ba.v + eps * dva # corrected speed a
-                vb = bb.v + eps * dvb # corrected speed b
-                collGrav = ballBallCollison(pa, pb, va, vb, self.R, CollisionType.CLOSEST) # collision correction
-                TCorr, pa, pb = collGrav
+                pa += eps * dpa[-1] # corrected position a
+                pb += eps * dpb[-1] # corrected position b
+                va = ba.v + eps * dva[-1] # corrected speed a
+                vb = bb.v + eps * dvb[-1] # corrected speed b
+                TCorr, pa, pb = ballBallCollison(pa, pb, va, vb, self.R, CollisionType.CLOSEST) # collision correction
                 if TCorr == np.Inf:
                     return (np.Inf, copy(ba), copy(bb))
                 T += TCorr
@@ -233,9 +246,27 @@ class billard:
                 bbEnd.p0 = pb
                 baEnd.v = va
                 bbEnd.v = vb
-                baEnd.v, bbEnd.v = speedReflexionBallBall(baEnd.v, bbEnd.v, bbEnd.p0 - baEnd.p0)
+                baEnd.v, bbEnd.v = speedReflexionBallBall(baEnd.v, bbEnd.v, np.matmul(A, bbEnd.p0 - baEnd.p0))
                 return (T, baEnd, bbEnd)
-
+            
+    def ballBandCollision(self, b):
+        # Collision against band with gravity
+        eps = self.G * self.M
+        T, pColl, ax = ballBandCollision(p, v, self.W, self.H, CollosionType.EARLIEST)
+        if T == np.Inf:
+            return (np.Inf, copy(b))
+        _, dp, dv = simulate(b.p, b.v, self.c, T) # returns (time, pos, speed)
+        p += eps * dp[-1] # corrected position a
+        v = b.v + eps * dv[-1]
+        
+        if eps > 0:
+            TCorr, pColl, ax = ballBandCollision(p, v, self.W, self.H, CollosionType.CLOSEST)
+            T += TCorr
+            
+        bEnd = copy(b)
+        bEnd.v = speedReflexionBand(b.v, ax)
+        
+        return (T, bEnd)
     
     
     
