@@ -109,11 +109,16 @@ def ballBandCollision(p, v, W, H, collisionType):
     p = np.asarray(p)
     v = np.asarray(v)
     
+    if (np.linalg.norm(v) == 0.0):
+        return (np.Inf, p, [0,1])
+    
     # Find intersection with edge defined by position q and direction d
     def intersection(q, d):
         q = np.asarray(q)
         d = np.asarray(d)
         A = np.array([v, -d]).transpose()
+        if (np.linalg.det(A) == 0.0):
+            return (np.array([np.nan, np.nan]), np.Inf)
         b = q - p
         x = np.linalg.solve(A, b)
         tSol = x[0]
@@ -121,9 +126,9 @@ def ballBandCollision(p, v, W, H, collisionType):
         return (pSol, tSol)
     
     pRIGHT,  tRIGHT  = intersection([ W,  0], [0,1])
-    pTOP,    tTOP    = intersection([ 0,  W], [1,0])
+    pTOP,    tTOP    = intersection([ 0,  H], [1,0])
     pLEFT,   tLEFT   = intersection([-W,  0], [0,1])
-    pBOTTOM, tBOTTOM = intersection([ 0, -W], [1,0])
+    pBOTTOM, tBOTTOM = intersection([ 0, -H], [1,0])
     tList = np.array([tRIGHT, tTOP, tLEFT, tBOTTOM])
     
     indMin = -1
@@ -216,7 +221,7 @@ class billard:
         A =  np.array([[0,1],[-1,0]])
         # Collision between balls with gravity
         eps = self.G * self.M
-        collNoGrav = ballBallCollison(ba.p, ba.v, bb.p, bb.v, self.R, CollisionType.EARLIEST) # returns (t, paColl, pbColl)
+        collNoGrav = ballBallCollison(ba.p0, ba.v, bb.p0, bb.v, self.R, CollisionType.EARLIEST) # returns (t, paColl, pbColl)
         if collNoGrav[0] == np.Inf:
             return (np.Inf, copy(ba), copy(bb))
         else:
@@ -230,12 +235,12 @@ class billard:
                 return (T, baEnd, bbEnd)
             else:
                 (T, pa, pb) = collNoGrav # collision approximated without gravity
-                _, dpa, dva = simulate(ba.p, ba.v, self.c, T) # returns (time, pos, speed)
-                _, dpb, dvb = simulate(bb.p, bb.v, self.c, T) # returns (time, pos, speed)
-                pa += eps * dpa[-1] # corrected position a
-                pb += eps * dpb[-1] # corrected position b
-                va = ba.v + eps * dva[-1] # corrected speed a
-                vb = bb.v + eps * dvb[-1] # corrected speed b
+                _, dpa, dva = simulate(ba.p0, ba.v, self.c, T) # returns (time, pos, speed)
+                _, dpb, dvb = simulate(bb.p0, bb.v, self.c, T) # returns (time, pos, speed)
+                pa += eps * dpa[:,-1] # corrected position a
+                pb += eps * dpb[:,-1] # corrected position b
+                va = ba.v + eps * dva[:,-1] # corrected speed a
+                vb = bb.v + eps * dvb[:,-1] # corrected speed b
                 TCorr, pa, pb = ballBallCollison(pa, pb, va, vb, self.R, CollisionType.CLOSEST) # collision correction
                 if TCorr == np.Inf:
                     return (np.Inf, copy(ba), copy(bb))
@@ -252,15 +257,15 @@ class billard:
     def ballBandCollision(self, b):
         # Collision against band with gravity
         eps = self.G * self.M
-        T, pColl, ax = ballBandCollision(p, v, self.W, self.H, CollosionType.EARLIEST)
+        T, pColl, ax = ballBandCollision(b.p0, b.v, self.W, self.H, CollisionType.EARLIEST)
         if T == np.Inf:
             return (np.Inf, copy(b))
-        _, dp, dv = simulate(b.p, b.v, self.c, T) # returns (time, pos, speed)
-        p += eps * dp[-1] # corrected position a
-        v = b.v + eps * dv[-1]
+        _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
+        p = pColl + eps * dp[:,-1] # corrected position a
+        v = b.v + eps * dv[:,-1]
         
         if eps > 0:
-            TCorr, pColl, ax = ballBandCollision(p, v, self.W, self.H, CollosionType.CLOSEST)
+            TCorr, pColl, ax = ballBandCollision(p, v, self.W, self.H, CollisionType.CLOSEST)
             T += TCorr
             
         bEnd = copy(b)
@@ -268,6 +273,29 @@ class billard:
         
         return (T, bEnd)
     
+    def getFirstBallBallCollision(self):
+        n = len(self.balls)
+        Tmatrix = np.zeros((n,n)) + np.Inf
+        for k in range(n):
+            for l in range(k):
+                Tmatrix[k,l],_ ,_ = self.ballBallCollison(self.balls[k], self.balls[l])
+        ind = np.where(Tmatrix == np.amin(Tmatrix))
+        k = ind[0][0]
+        l = ind[1][0]
+        return (Tmatrix[k,l], l, k)
     
+    def getFirstBallBandCollision(self):
+        n = len(self.balls)
+        Tlist = np.zeros((n)) + np.Inf
+        for k in range(n):
+            Tlist[k], _ = self.ballBandCollision(self.balls[k])
+        ind = np.where(Tlist == np.amin(Tlist))
+        k = ind[0][0]
+        return (Tlist[k], k)
+
     
+b = billard()
+
+b.getFirstBallBallCollision()
+b.getFirstBallBandCollision()
     
