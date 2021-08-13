@@ -292,6 +292,24 @@ class billard:
         ind = np.where(Tlist == np.amin(Tlist))
         k = ind[0][0]
         return (Tlist[k], k)
+    
+    def goToNextBallsState(self):
+        (Tbb, lbb, kbb) = self.getFirstBallBallCollision()
+        (Tb, kb) = self.getFirstBallBandCollision()
+        Tmin = min(Tbb, Tb)
+        # Propagate solutions before updating state
+        # TODO !!
+        # Update state
+        if Tbb < Tb:
+            T , ba, bb = self.ballBallCollison(self.balls[kbb], self.balls[lbb])
+            self.balls[kbb].p0 = ba.p0
+            self.balls[kbb].v = ba.v
+            self.balls[lbb].p0 = bb.p0
+            self.balls[lbb].v = bb.v
+        else:
+            T, b = s= self.ballBandCollision(self.balls[kb])
+            self.balls[kb].p0 = b.p0
+            self.balls[kb].v = b.v
 
     
 b = billard()
