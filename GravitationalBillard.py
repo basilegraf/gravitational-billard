@@ -12,7 +12,18 @@ from enum import Enum
 import scipy.integrate as integrate
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from copy import copy
+
+
+# Use qt for animations
+try:
+    import IPython
+    shell = IPython.get_ipython()
+    shell.enable_matplotlib(gui='qt')
+except:
+    pass
+
 
 # Force on mobile mass at p0 + v0 * t exerted by fixed mass at c
 # assuming unit masses and gravitational constant
@@ -105,12 +116,12 @@ class CollisionBand(Enum):
     NONE = 5
     
 # collision time and position between ball and band on 2Wx2H billard centered at (0,0)
-def ballBandCollision(p, v, W, H, collisionType):
+def ballBandCollision(p, v, W, H, collisionType, ignoreBand = CollisionBand.NONE):
     p = np.asarray(p)
     v = np.asarray(v)
     
     if (np.linalg.norm(v) == 0.0):
-        return (np.Inf, p, [0,1])
+        return (np.Inf, p, [0,1], CollisionBand.NONE)
     
     # Find intersection with edge defined by position q and direction d
     def intersection(q, d):
@@ -129,18 +140,31 @@ def ballBandCollision(p, v, W, H, collisionType):
     pTOP,    tTOP    = intersection([ 0,  H], [1,0])
     pLEFT,   tLEFT   = intersection([-W,  0], [0,1])
     pBOTTOM, tBOTTOM = intersection([ 0, -H], [1,0])
+    
+    if ignoreBand == CollisionBand.RIGHT:
+        tRIGHT = np.Inf
+    elif ignoreBand == CollisionBand.TOP:
+        tTOP = np.Inf
+    elif ignoreBand == CollisionBand.LEFT:
+        tLEFT = np.Inf
+    elif ignoreBand == CollisionBand.BOTTOM:
+        tBOTTOM = np.Inf
+    
     tList = np.array([tRIGHT, tTOP, tLEFT, tBOTTOM])
+    typeList = [CollisionBand.RIGHT, CollisionBand.TOP, CollisionBand.LEFT, CollisionBand.BOTTOM]
     
     indMin = -1
     t = 0
+    band = CollisionBand.NONE
     if collisionType == CollisionType.EARLIEST:       
         tList[tList < 0] = np.Inf
         indMin = np.where(tList == np.amin(tList))[0][0]
-        t = tList[indMin]  
     else: # CLOSEST
         tListAbs = np.abs(tList)
         indMin = np.where(tListAbs == np.amin(tListAbs))[0][0]
-        t = tList[indMin]
+        
+    t = tList[indMin]
+    band = typeList[indMin]
         
     if (t < np.Inf):
         pColl = p + v * t
@@ -148,9 +172,9 @@ def ballBandCollision(p, v, W, H, collisionType):
         pColl = p
             
     if ((indMin == 0) or (indMin == 2)):
-        return (t, pColl, [0,1])
+        return (t, pColl, [0,1], band)
     else:
-        return (t, pColl, [1,0])
+        return (t, pColl, [1,0], band)
     
        
     
@@ -174,6 +198,7 @@ def speedReflexionBallBall(va, vb, ax):
     va = np.asarray(va)
     vb = np.asarray(vb)
     ax = np.asarray(ax)
+    ax = ax / np.linalg.norm(ax)
     n = np.array([ax[1], -ax[0]])
     A1 = np.array([ax, n]).transpose()
     
@@ -184,7 +209,7 @@ def speedReflexionBallBall(va, vb, ax):
     va1[1] = vb1[1]
     vb1[1] = tmp
     
-    A2 = np.array([ax, -n])
+    A2 = np.array([ax, n])
     return (np.matmul(A2, va1), np.matmul(A2, vb1))
 
 
@@ -194,10 +219,15 @@ class ball:
         self.v = np.asarray(v)
         self.R = R
 
-    
+
+class CollisionCase(Enum):
+    BALLBALL = 0
+    BALLBAND = 1
+    NONE = 2
+
     
 class billard:
-    def __init__(self, W = 1.3/2, H = 2.5/2, c = [1.5, 0.0], M = 80.0, G = 6.67e-11, R = 60/1000):
+    def __init__(self, W = 1.3/2, H = 2.5/2, c = [1.5, 0.0], M = 80.0, G = 0*6.67e-11, R = 60/1000/2):
         self.W = W
         self.H = H
         self.c = np.asarray(c) # player mass position
@@ -205,17 +235,20 @@ class billard:
         self.G = G
         self.R = R
         # balls
-        self.balls = [ball([0,-H/2], [0,2], R)] # white ball
-        n = 3
-        d = 1.01 * R
+        self.balls = [ball([4*R,-H/2], [1,2], R)] # white ball
+        self.lastCollidingBallsInd = {}
+        self.lastBandHit = CollisionBand.NONE
+        self.lastCollisionCase = CollisionCase.NONE
+        n = 1 # 3
+        d = 1.1 * 2 * R
         y = 0
         for k in range(1,n+1):
-            x0 = d * (k - 1) / 2
+            x0 = -d * (k - 1) / 2
             for q in range(k):
                 pos = [x0+q*d, y + q*1e-8] # avoid simultaneous collisions
                 b = ball(pos, [0,0], R)
                 self.balls.append(b)
-                y += np.sqrt(3/4) * d
+            y += np.sqrt(3/4) * d
                 
     def ballBallCollison(self, ba, bb):
         A =  np.array([[0,1],[-1,0]])
@@ -257,28 +290,30 @@ class billard:
     def ballBandCollision(self, b):
         # Collision against band with gravity
         eps = self.G * self.M
-        T, pColl, ax = ballBandCollision(b.p0, b.v, self.W, self.H, CollisionType.EARLIEST)
+        T, pColl, ax, band = ballBandCollision(b.p0, b.v, self.W, self.H, CollisionType.EARLIEST, self.lastBandHit)
         if T == np.Inf:
-            return (np.Inf, copy(b))
+            return (np.Inf, copy(b), CollisionBand.NONE)
         _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
         p = pColl + eps * dp[:,-1] # corrected position a
         v = b.v + eps * dv[:,-1]
         
         if eps > 0:
-            TCorr, pColl, ax = ballBandCollision(p, v, self.W, self.H, CollisionType.CLOSEST)
+            TCorr, pColl, ax, _ = ballBandCollision(p, v, self.W, self.H, CollisionType.CLOSEST, CollisionBand.NONE)
             T += TCorr
             
         bEnd = copy(b)
+        bEnd.p0 = pColl
         bEnd.v = speedReflexionBand(b.v, ax)
         
-        return (T, bEnd)
+        return (T, bEnd, band)
     
     def getFirstBallBallCollision(self):
         n = len(self.balls)
         Tmatrix = np.zeros((n,n)) + np.Inf
         for k in range(n):
             for l in range(k):
-                Tmatrix[k,l],_ ,_ = self.ballBallCollison(self.balls[k], self.balls[l])
+                if {k,l} != self.lastCollidingBallsInd:
+                    Tmatrix[k,l],_ ,_ = self.ballBallCollison(self.balls[k], self.balls[l])
         ind = np.where(Tmatrix == np.amin(Tmatrix))
         k = ind[0][0]
         l = ind[1][0]
@@ -287,15 +322,17 @@ class billard:
     def getFirstBallBandCollision(self):
         n = len(self.balls)
         Tlist = np.zeros((n)) + np.Inf
-        for k in range(n):
-            Tlist[k], _ = self.ballBandCollision(self.balls[k])
+        bandList = []
+        for k in set(range(n)).difference(self.lastCollidingBallsInd):
+            Tlist[k], _, band = self.ballBandCollision(self.balls[k])
+            bandList.append(band)
         ind = np.where(Tlist == np.amin(Tlist))
         k = ind[0][0]
-        return (Tlist[k], k)
+        return (Tlist[k], k, bandList[k])
     
     def goToNextBallsState(self):
         (Tbb, lbb, kbb) = self.getFirstBallBallCollision()
-        (Tb, kb) = self.getFirstBallBandCollision()
+        (Tb, kb, band) = self.getFirstBallBandCollision()
         Tmin = min(Tbb, Tb)
         # Propagate solutions before updating state
         # TODO !!
@@ -306,14 +343,81 @@ class billard:
             self.balls[kbb].v = ba.v
             self.balls[lbb].p0 = bb.p0
             self.balls[lbb].v = bb.v
+            self.lastCollidingBallsInd = {kbb, lbb}
+            self.lastCollisionCase = CollisionCase.BALLBALL
+            self.lastBandHit = CollisionBand.NONE
+            print("Collision time : ",T, "(ball-ball)")
         else:
-            T, b = s= self.ballBandCollision(self.balls[kb])
+            T, b, band = self.ballBandCollision(self.balls[kb])
             self.balls[kb].p0 = b.p0
             self.balls[kb].v = b.v
+            self.lastCollidingBallsInd = {kb}
+            self.lastCollisionCase = CollisionCase.BALLBAND
+            self.lastBandHit = band
+            print("Collision time : ",T,  "(ball-band)")
+
 
     
 b = billard()
 
 b.getFirstBallBallCollision()
 b.getFirstBallBandCollision()
+
+class animBillard:
+    def __init__(self, billard):
+        self.billard = billard
+        self.W = billard.W
+        self.H = billard.H
+        self.R = billard.R
+        self.nBalls = len(billard.balls)
+        self.pos = np.zeros((2, self.nBalls))
+        self.spd = np.zeros((2, self.nBalls))
+        for k in range(self.nBalls):
+            self.pos[:,k] = billard.balls[k].p0
+            self.spd[:,k] = billard.balls[k].v
+        self.fig, self.ax = plt.subplots()
     
+    def initAnim(self):
+        self.ax.clear()
+        self.ln, = self.ax.plot([], [])
+        self.ax.set_aspect(aspect='equal', adjustable='box')
+        margin = 4 * self.R
+        self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
+        self.ax.set_ylim(bottom=-self.H - margin, top=self.H + margin)
+        #self.ax.set_xbound(lower=-1.1*self.W, upper=1.1*self.W)
+        #self.ax.set_ybound(lower=-1.1*self.H, upper=1.1*self.H)
+        self.ax.grid(b=True)
+        self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.2,.9,.2])
+        self.ax.add_patch(self.table)
+        self.ballsCirc = []
+        self.spdVec = []
+        for k in range(self.nBalls):
+            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R))
+            self.ax.add_patch(self.ballsCirc[-1])
+        for k in range(self.nBalls):
+            rho = 0.1
+            self.spdVec.append(plt.Arrow(self.pos[0,k],self.pos[1,k], rho*self.spd[0,k], rho*self.spd[1,k], width=.05, color=[.8,.2,.2]))
+            self.ax.add_patch(self.spdVec[-1])
+            
+b2 = billard()
+ab = animBillard(b2)
+ab.initAnim()
+
+b2.goToNextBallsState()
+ab2 = animBillard(b2)
+ab2.initAnim()
+
+b2.goToNextBallsState()
+ab3 = animBillard(b2)
+ab3.initAnim()
+
+b2.goToNextBallsState()
+ab4 = animBillard(b2)
+ab4.initAnim()
+
+b2.goToNextBallsState()
+ab5 = animBillard(b2)
+ab5.initAnim()
+
+
+
