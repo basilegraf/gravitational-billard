@@ -235,7 +235,7 @@ class billard:
         self.G = G
         self.R = R
         # balls
-        self.balls = [ball([4*R,-H/2], [1,2], R)] # white ball
+        self.balls = [ball([1*R,-H/2], [0,2], R)] # white ball
         self.lastCollidingBallsInd = {}
         self.lastBandHit = CollisionBand.NONE
         self.lastCollisionCase = CollisionCase.NONE
@@ -322,12 +322,13 @@ class billard:
     def getFirstBallBandCollision(self):
         n = len(self.balls)
         Tlist = np.zeros((n)) + np.Inf
-        bandList = []
+        bandList = [CollisionBand.NONE]*n
         for k in set(range(n)).difference(self.lastCollidingBallsInd):
-            Tlist[k], _, band = self.ballBandCollision(self.balls[k])
-            bandList.append(band)
+            Tlist[k], _, bandList[k] = self.ballBandCollision(self.balls[k])
         ind = np.where(Tlist == np.amin(Tlist))
         k = ind[0][0]
+        print(Tlist[k])
+        print(bandList[k])
         return (Tlist[k], k, bandList[k])
     
     def goToNextBallsState(self):
