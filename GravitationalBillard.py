@@ -40,10 +40,17 @@ def simulate(p0, v0, c, T):
     p0 = np.asarray(p0)
     v0 = np.asarray(v0)
     c = np.asarray(c)
+    T = np.asarray(T)
     z0 = np.array([0,0,0,0]);
     fInt = lambda tt, zz : np.concatenate((zz[2:4], force(p0, v0, c, tt)))
     tSpan = [0, T]
-    ivpSol = integrate.solve_ivp(fInt, tSpan, z0, max_step = 0.01)
+    if T.shape == ():
+        tSpan = [0, T.tolist()]
+        tEval = None
+    else:
+        tSpan = [T[0], T[-1]]
+        tEval = T
+    ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval, max_step = 0.01)
     # return (time, pos, speed)
     return (ivpSol.t, ivpSol.y[0:2,:], ivpSol.y[2:4,:])
     
@@ -249,6 +256,9 @@ class billard:
                 b = ball(pos, [0,0], R)
                 self.balls.append(b)
             y += np.sqrt(3/4) * d
+        # solutions
+        self.solutionTime = np.zeros((0))
+        self.solutionPos = np.zeros((len(self.balls), 2, 0))
                 
     def ballBallCollison(self, ba, bb):
         A =  np.array([[0,1],[-1,0]])
@@ -333,12 +343,31 @@ class billard:
         print(bandList[k])
         return (Tlist[k], k, bandList[k])
     
+    def propagateSolutions(self, T):
+        N = 20       
+        eps = self.G * self.M
+        tEval = np.linspace(0, T, N)
+        newPos = np.zeros((len(self.balls), 2, N))
+        for k in range(len(self.balls)):
+            b = self.balls[k]
+            (t, posGrav, spdGrav) = simulate(b.p0, b.v, self.c, tEval)
+            pos = np.outer(b.p0, np.ones((N))) + np.outer(b.v, t) + eps * posGrav
+            newPos[k,:,:] = pos;
+            
+        if len(self.solutionTime) == 0:
+            self.solutionTime =  tEval
+            self.solutionPos = newPos
+        else:
+            self.solutionTime = np.append(self.solutionTime, tEval[1:], axis = 0)
+            self.solutionPos = np.append(self.solutionPos, newPos[:,:,1:], axis = 2)               
+    
     def goToNextBallsState(self):
         (Tbb, lbb, kbb) = self.getFirstBallBallCollision()
         (Tb, kb, band) = self.getFirstBallBandCollision()
         Tmin = min(Tbb, Tb)
+        
         # Propagate solutions before updating state
-        # TODO !!
+        self.propagateSolutions(Tmin)
         
         # Update state of colliding balls
         if Tbb < Tb:
@@ -432,4 +461,5 @@ ab5 = animBillard(b2)
 ab5.initAnim()
 
 
-
+plt.plot(b2.solutionPos[0,0,:], b2.solutionPos[0,1,:])
+plt.plot(b2.solutionPos[1,0,:], b2.solutionPos[1,1,:])
