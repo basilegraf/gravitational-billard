@@ -50,10 +50,15 @@ def simulate(p0, v0, c, T):
     else:
         tSpan = [T[0], T[-1]]
         tEval = T
-    ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval, max_step = 0.01)
-    # return (time, pos, speed)
-    return (ivpSol.t, ivpSol.y[0:2,:], ivpSol.y[2:4,:])
-    
+    if tSpan[0] != tSpan[1]:
+        ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval, max_step = 0.01)
+        return (ivpSol.t, ivpSol.y[0:2,:], ivpSol.y[2:4,:])
+    else:
+        pp = np.zeros((2,1))
+        pp[:,0] = p0
+        vv = np.zeros((2,1))
+        vv[:,0] = v0
+        return (np.zeros((1)), pp, vv)
     
 
 p0 = np.asarray([1.0,1.0])
@@ -164,7 +169,7 @@ def ballBandCollision(p, v, W, H, collisionType, ignoreBand = CollisionBand.NONE
     t = 0
     band = CollisionBand.NONE
     if collisionType == CollisionType.EARLIEST:       
-        tList[tList < 0] = np.Inf
+        tList[tList <= 0] = np.Inf
         indMin = np.where(tList == np.amin(tList))[0][0]
     else: # CLOSEST
         tListAbs = np.abs(tList)
@@ -242,11 +247,11 @@ class billard:
         self.G = G
         self.R = R
         # balls
-        self.balls = [ball([1*R,-H/2], [0,2], R)] # white ball
+        self.balls = [ball([0*R,-H/2], [0,2], R)] # white ball
         self.lastCollidingBallsInd = {}
         self.lastBandHit = CollisionBand.NONE
         self.lastCollisionCase = CollisionCase.NONE
-        n = 1 # 3
+        n = 2
         d = 1.1 * 2 * R
         y = 0
         for k in range(1,n+1):
@@ -300,7 +305,7 @@ class billard:
     def ballBandCollision(self, b):
         # Collision against band with gravity
         eps = self.G * self.M
-        T, pColl, ax, band = ballBandCollision(b.p0, b.v, self.W, self.H, CollisionType.EARLIEST, self.lastBandHit)
+        T, pColl, ax, band = ballBandCollision(b.p0, b.v, self.W, self.H, CollisionType.EARLIEST, CollisionBand.NONE)#self.lastBandHit)
         if T == np.Inf:
             return (np.Inf, copy(b), CollisionBand.NONE)
         _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
@@ -339,8 +344,6 @@ class billard:
                 Tlist[k] = np.Inf
         ind = np.where(Tlist == np.amin(Tlist))
         k = ind[0][0]
-        print(Tlist[k])
-        print(bandList[k])
         return (Tlist[k], k, bandList[k])
     
     def propagateSolutions(self, T):
@@ -387,7 +390,7 @@ class billard:
             self.lastCollidingBallsInd = {kb}
             self.lastCollisionCase = CollisionCase.BALLBAND
             self.lastBandHit = band
-            print("Collision time : ",T,  "(ball-band)")
+            print("Collision time : ",T,  "(ball-band)", band)
         
         # Update other balls state
         for k in range(len(self.balls)):
@@ -396,12 +399,14 @@ class billard:
                 b = self.balls[k]
                 _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
                 b.p0 += T * b.v + eps * dp[:,-1] # corrected position a
-                b.v += eps * dv[:,-1]
+                b.v = b.v + eps * dv[:,-1]
                 
     def run(self, Ttot, frameRate = 25):
         self.goToNextBallsState()
+
         while self.solutionTime[-1] < Ttot:
             self.goToNextBallsState()
+
         tMax = self.solutionTime[-1]
         nFrames = int(np.floor(tMax * frameRate))
         self.framesTime = np.array(range(nFrames)) / frameRate
@@ -417,6 +422,11 @@ b = billard()
 
 b.getFirstBallBallCollision()
 b.getFirstBallBandCollision()
+
+def get_cmap(n, name='hsv'):
+    '''Returns a function that maps each index in 0, 1, ..., n-1 to a distinct 
+    RGB color; the keyword argument name must be a standard mpl colormap name.'''
+    return plt.cm.get_cmap(name, n)
 
 class animBillard:
     def __init__(self, billard):
@@ -440,32 +450,30 @@ class animBillard:
         margin = 4 * self.R
         self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
         self.ax.set_ylim(bottom=-self.H - margin, top=self.H + margin)
-        #self.ax.set_xbound(lower=-1.1*self.W, upper=1.1*self.W)
-        #self.ax.set_ybound(lower=-1.1*self.H, upper=1.1*self.H)
         self.ax.grid(b=True)
         self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.2,.9,.2])
         self.ax.add_patch(self.table)
         self.ballsCirc = []
         self.spdVec = []
+        cmap = get_cmap(2*self.nBalls)
         for k in range(self.nBalls):
-            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R))
+            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=cmap(k)))
             self.ax.add_patch(self.ballsCirc[-1])
-        for k in range(self.nBalls):
-            rho = 0.1
-            self.spdVec.append(plt.Arrow(self.pos[0,k],self.pos[1,k], rho*self.spd[0,k], rho*self.spd[1,k], width=.05, color=[.8,.2,.2]))
-            self.ax.add_patch(self.spdVec[-1])
+        # for k in range(self.nBalls):
+        #     rho = 0.1
+        #     self.spdVec.append(plt.Arrow(self.pos[0,k],self.pos[1,k], rho*self.spd[0,k], rho*self.spd[1,k], width=.05, color=[.8,.2,.2]))
+        #     self.ax.add_patch(self.spdVec[-1])
             
     def update(self, frame):
-        print("frame : ", frame)
         for k in range(len(self.ballsCirc)):
             self.ballsCirc[k].set_center(self.billard.framesPos[k,:,frame])
             
     def anim(self):
-        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=1000, interval=25)
+        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=25)
 
             
 b = billard()
-b.run(3.0)
+b.run(15.0)
 ab = animBillard(b)
 ab.initAnim()
 an = ab.anim()
@@ -491,6 +499,21 @@ an = ab.anim()
 # ab5 = animBillard(b2)
 # ab5.initAnim()
 
+# b2.goToNextBallsState()
+# ab5 = animBillard(b2)
+# ab5.initAnim()
+
+# b2.goToNextBallsState()
+# ab5 = animBillard(b2)
+# ab5.initAnim()
+
+# b2.goToNextBallsState()
+# ab5 = animBillard(b2)
+# ab5.initAnim()
+
+# b2.goToNextBallsState()
+# ab5 = animBillard(b2)
+# ab5.initAnim()
 
 # plt.plot(b2.solutionPos[0,0,:], b2.solutionPos[0,1,:])
 # plt.plot(b2.solutionPos[1,0,:], b2.solutionPos[1,1,:])
