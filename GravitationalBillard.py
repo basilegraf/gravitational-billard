@@ -112,8 +112,8 @@ class CollisionBand(Enum):
     RIGHT = 0
     TOP = 1
     LEFT = 2
-    BOTTOM = 4
-    NONE = 5
+    BOTTOM = 3
+    NONE = 4
     
 # collision time and position between ball and band on 2Wx2H billard centered at (0,0)
 def ballBandCollision(p, v, W, H, collisionType, ignoreBand = CollisionBand.NONE):
@@ -312,7 +312,7 @@ class billard:
         Tmatrix = np.zeros((n,n)) + np.Inf
         for k in range(n):
             for l in range(k):
-                if {k,l} != self.lastCollidingBallsInd:
+                if not (({k,l} == self.lastCollidingBallsInd) and (self.lastCollisionCase == CollisionCase.BALLBALL)):
                     Tmatrix[k,l],_ ,_ = self.ballBallCollison(self.balls[k], self.balls[l])
         ind = np.where(Tmatrix == np.amin(Tmatrix))
         k = ind[0][0]
@@ -323,8 +323,10 @@ class billard:
         n = len(self.balls)
         Tlist = np.zeros((n)) + np.Inf
         bandList = [CollisionBand.NONE]*n
-        for k in set(range(n)).difference(self.lastCollidingBallsInd):
+        for k in range(n):
             Tlist[k], _, bandList[k] = self.ballBandCollision(self.balls[k])
+            if (k in self.lastCollidingBallsInd) and (self.lastCollisionCase == CollisionCase.BALLBAND) and (bandList[k] == self.lastBandHit):
+                Tlist[k] = np.Inf
         ind = np.where(Tlist == np.amin(Tlist))
         k = ind[0][0]
         print(Tlist[k])
@@ -337,7 +339,8 @@ class billard:
         Tmin = min(Tbb, Tb)
         # Propagate solutions before updating state
         # TODO !!
-        # Update state
+        
+        # Update state of colliding balls
         if Tbb < Tb:
             T , ba, bb = self.ballBallCollison(self.balls[kbb], self.balls[lbb])
             self.balls[kbb].p0 = ba.p0
@@ -356,7 +359,15 @@ class billard:
             self.lastCollisionCase = CollisionCase.BALLBAND
             self.lastBandHit = band
             print("Collision time : ",T,  "(ball-band)")
-
+        
+        # Update other balls state
+        for k in range(len(self.balls)):
+            if k not in self.lastCollidingBallsInd:
+                eps = self.G * self.M
+                b = self.balls[k]
+                _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
+                b.p0 += T * b.v + eps * dp[:,-1] # corrected position a
+                b.v += eps * dv[:,-1]
 
     
 b = billard()
