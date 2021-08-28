@@ -431,6 +431,7 @@ class animBillard:
             self.pos[:,k] = billard.balls[k].p0
             self.spd[:,k] = billard.balls[k].v
         self.fig, self.ax = plt.subplots()
+        self.frames = range(len(billard.solutionTime))
     
     def initAnim(self):
         self.ax.clear()
@@ -454,26 +455,42 @@ class animBillard:
             self.spdVec.append(plt.Arrow(self.pos[0,k],self.pos[1,k], rho*self.spd[0,k], rho*self.spd[1,k], width=.05, color=[.8,.2,.2]))
             self.ax.add_patch(self.spdVec[-1])
             
-b2 = billard()
-ab = animBillard(b2)
+    def update(self, frame):
+        print("frame : ", frame)
+        for k in range(len(self.ballsCirc)):
+            self.ballsCirc[k].set_center(self.billard.framesPos[k,:,frame])
+            
+    def anim(self):
+        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=1000, interval=25)
+
+            
+b = billard()
+b.run(3.0)
+ab = animBillard(b)
 ab.initAnim()
-
-b2.goToNextBallsState()
-ab2 = animBillard(b2)
-ab2.initAnim()
-
-b2.goToNextBallsState()
-ab3 = animBillard(b2)
-ab3.initAnim()
-
-b2.goToNextBallsState()
-ab4 = animBillard(b2)
-ab4.initAnim()
-
-b2.goToNextBallsState()
-ab5 = animBillard(b2)
-ab5.initAnim()
+an = ab.anim()
 
 
-plt.plot(b2.solutionPos[0,0,:], b2.solutionPos[0,1,:])
-plt.plot(b2.solutionPos[1,0,:], b2.solutionPos[1,1,:])
+# b2 = billard()
+# ab = animBillard(b2)
+# ab.initAnim()
+
+# b2.goToNextBallsState()
+# ab2 = animBillard(b2)
+# ab2.initAnim()
+
+# b2.goToNextBallsState()
+# ab3 = animBillard(b2)
+# ab3.initAnim()
+
+# b2.goToNextBallsState()
+# ab4 = animBillard(b2)
+# ab4.initAnim()
+
+# b2.goToNextBallsState()
+# ab5 = animBillard(b2)
+# ab5.initAnim()
+
+
+# plt.plot(b2.solutionPos[0,0,:], b2.solutionPos[0,1,:])
+# plt.plot(b2.solutionPos[1,0,:], b2.solutionPos[1,1,:])
