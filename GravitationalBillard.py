@@ -358,7 +358,7 @@ class billard:
             self.solutionTime =  tEval
             self.solutionPos = newPos
         else:
-            self.solutionTime = np.append(self.solutionTime, tEval[1:], axis = 0)
+            self.solutionTime = np.append(self.solutionTime, tEval[1:] + self.solutionTime[-1], axis = 0)
             self.solutionPos = np.append(self.solutionPos, newPos[:,:,1:], axis = 2)               
     
     def goToNextBallsState(self):
@@ -397,6 +397,20 @@ class billard:
                 _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
                 b.p0 += T * b.v + eps * dp[:,-1] # corrected position a
                 b.v += eps * dv[:,-1]
+                
+    def run(self, Ttot, frameRate = 25):
+        self.goToNextBallsState()
+        while self.solutionTime[-1] < Ttot:
+            self.goToNextBallsState()
+        tMax = self.solutionTime[-1]
+        nFrames = int(np.floor(tMax * frameRate))
+        self.framesTime = np.array(range(nFrames)) / frameRate
+        self.framesPos = np.zeros((len(self.balls), 2, nFrames))
+        for n in range(len(self.balls)):
+            for k in range(2):
+                self.framesPos[n,k,:] = np.interp(self.framesTime, self.solutionTime, self.solutionPos[n,k,:])
+        
+        
 
     
 b = billard()
