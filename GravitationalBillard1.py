@@ -232,7 +232,7 @@ class billard:
     def __init__(self, gravityOn = False):
         self.gravityOn = gravityOn
         # balls
-        self.balls = [ball([0.1*R,-H/2], [0,2], R, 0)] # white ball
+        self.balls = [ball([0.0*R,-H/2], [0,2], R, 0)] # white ball
         n = 5
         d = 1.1 * 2 * R
         y = 0
@@ -319,10 +319,15 @@ class billard:
             self.balls[kb].v = vMinb
             
     def run(self, Ttot, frameRate = 25):
-        self.goToNextCollision()     
+        collisionCounter = [[0.0,0]]
+        self.goToNextCollision()  
+        
+        collisionCounter += [[self.solutionTime[-1], collisionCounter[-1][1]+1]]
 
         while self.solutionTime[-1] < Ttot:
             self.goToNextCollision()
+            collisionCounter += [[self.solutionTime[-1], collisionCounter[-1][1]+1]]
+        collisionCounter = np.array(collisionCounter)
 
         tMax = self.solutionTime[-1]
         nFrames = int(np.floor(tMax * frameRate))
@@ -331,6 +336,8 @@ class billard:
         for n in range(len(self.balls)):
             for k in range(2):
                 self.framesPos[n,k,:] = np.interp(self.framesTime, self.solutionTime, self.solutionPos[n,k,:])
+        collisionCounter = np.interp(self.framesTime, collisionCounter[:,0], collisionCounter[:,1])
+        self.framesCollisionCounter = collisionCounter.astype('int')
                     
 
 def get_cmap(n, name='hsv'):
@@ -373,14 +380,24 @@ class animBillard:
                 col = [0.8,0.8,0.2]
             self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=col))
             self.ax.add_patch(self.ballsCirc[-1])
-        # for k in range(self.nBalls):
-        #     rho = 0.1
-        #     self.spdVec.append(plt.Arrow(self.pos[0,k],self.pos[1,k], rho*self.spd[0,k], rho*self.spd[1,k], width=.05, color=[.8,.2,.2]))
-        #     self.ax.add_patch(self.spdVec[-1])
+        
+        self.txt=plt.text(  # position text relative to Figure
+            0.5, 0.9, 'Collisions %d' % 0,
+            ha='center', va='center',
+            transform=self.fig.transFigure,
+            fontsize=25, 
+            color = 'xkcd:yellow orange',
+            usetex=True)
+        self.ax.add_artist(self.txt)
+        self.ax.grid(b=False)
+        self.ax.set_axis_off()
             
     def update(self, frame):
         for k in range(len(self.ballsCirc)):
             self.ballsCirc[k].set_center(self.billard.framesPos[k,:,frame])
+        nCol = self.billard.framesCollisionCounter[frame]
+        self.txt.set_text('Collisions %d' % nCol)
+            
             
     def anim(self):
         return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=0)
@@ -392,6 +409,7 @@ def joinBillard(b1, b2):
     
     nFrames = len(b1.framesTime)
     T = min(b1.solutionTime[-1], b2.solutionTime[-1])
+    b.framesCollisionCounter = b1.framesCollisionCounter
     b.framesTime = np.linspace(0, T, nFrames)
     b.framesPos = np.zeros((len(b.balls), 2, nFrames))
     for n in range(len(b1.balls)):
