@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat Aug  7 15:30:08 2021
+Created on Fri Sep  3 11:24:14 2021
 
 @author: basile
 """
@@ -13,8 +13,8 @@ import scipy.integrate as integrate
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import matplotlib.animation as animation
 from copy import copy
-
 
 # Use qt for animations
 try:
@@ -26,7 +26,7 @@ except:
 
 
 # Force on mobile mass at p0 + v0 * t exerted by fixed mass at c
-# assuming unit masses and gravitational constant
+# assuming unit masses and gravitation constant
 def force(p0, v0, c, t):
     p0 = np.asarray(p0)
     v0 = np.asarray(v0)
@@ -34,6 +34,7 @@ def force(p0, v0, c, t):
     x = c - (p0 + v0 * t)
     r = np.linalg.norm(x)
     return (1.0 / r**3) * x
+
 
 # simulate trajectory deviation, assuming unit parameters
 def simulate(p0, v0, c, T):
@@ -51,7 +52,7 @@ def simulate(p0, v0, c, T):
         tSpan = [T[0], T[-1]]
         tEval = T
     if tSpan[0] != tSpan[1]:
-        ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval, max_step = 0.01)
+        ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval)
         return (ivpSol.t, ivpSol.y[0:2,:], ivpSol.y[2:4,:])
     else:
         pp = np.zeros((2,1))
@@ -66,346 +67,269 @@ v0 = np.asarray([0.0,1.0])
 c = np.asarray([0.0,0.0])
 (t, dpos, dspd) = simulate(p0, v0, c,1)
 
+
 pos = dpos + np.asarray([t * v0[0] + p0[0], t * v0[1] + p0[1]])
+
 
 plt.plot(pos[0,:], pos[1,:])
 plt.axis('equal')
 
 
-class CollisionType(Enum):
-    EARLIEST = 0 # look for smallest positive collision time
-    CLOSEST = 1 # look for smallest absolute collision time
 
-# collison time and positions between two balls
-def ballBallCollison(pa, va, pb, vb, R, collisionType):
-    pa = np.asarray(pa)
-    pb = np.asarray(pb)
-    va = np.asarray(va)
-    vb = np.asarray(vb)
-    d = pa - pb
-    w = va - vb
+G = 6.67e-11        # gravitation constant
+M = 80.0            # player mass
+
+H = 1.3/2           # table half width
+W = 2.5/2          # table half height
+R = 60/1000/2       # ball radius
+c = [0.0, -H - 0.2]      # player position
+
+fps = 60
+
+
+
+# Ball with initial conditions
+class ball:
+    def __init__(self, p0 = [0,0], v = [0,0], R = R, idx = -1):
+        self.p0 = np.asarray(p0)
+        self.v = np.asarray(v)
+        self.R = np.abs(R)
+        self.idx = idx
+    
+    def solution(self, T, gravityOn):
+        eps = G * M if gravityOn else 0.0
+        (t, dpos, dspd) = simulate(self.p0, self.v, c, T)
+        pos = eps * dpos + np.asarray([t * self.v[0] + self.p0[0], t * self.v[1] + self.p0[1]])
+        spd = np.asarray([self.v[0] + eps * dspd[0, :], self.v[1] + eps * dspd[1, :]])
+        return (t, pos, spd)
+    
+    def propagate(self, T, gravityOn):
+        (t, pos, spd) = self.solution(T, gravityOn)       
+        self.p0 = pos[:,-1]
+        self.v = spd[:,-1]
+        return (t, pos, spd)
+        
+        
+        
+
+# collison time between two balls (no gravity)
+def ballBallCollisonNoGravity(ball1, ball2):
+    p1 = ball1.p0
+    p2 = ball2.p0
+    v1 = ball1.v
+    v2 = ball2.v
+    r = ball1.R + ball2.R
+    d = p1 - p2
+    w = v1 - v2
         
     A = np.dot(w, w)
     B = 2 * np.dot(d, w)
-    C = np.dot(d, d) - 4 * R**2
+    C = np.dot(d, d) - r**2
     discr = B**2 - 4 * A * C
     
     if (A == 0.0):
-        return (np.Inf, pa, pb)
+        # no relative speed
+        return (np.Inf, v1, v2)
     
-    t1, t2 = 0, 0
-    if discr < 0:
-        return (np.Inf, pa, pb)
+    if (discr < 0):
+        # no solution (no collision)
+        return (np.Inf, v1, v2)
+
+    t1 = (-B + np.sqrt(discr)) / (2 * A)
+    t2 = (-B - np.sqrt(discr)) / (2 * A)
+    # ball-distance time-derivative at solutions t1 and t2
+    dist_dt_t1 = 2 * (np.dot(d, w) + np.dot(w, w) * t1)
+    dist_dt_t2 = 2 * (np.dot(d, w) + np.dot(w, w) * t2)
+    
+    #print("(%d,%d)-Distance derivatives d(%f) = %f, d(%f) = %f, norm(w) = %f" % (ball1.idx, ball2.idx, t1, dist_dt_t1, t2, dist_dt_t2, np.linalg.norm(w)))
+    
+    # collision is the solution with negative distance derivative
+    t = np.Inf
+    if (dist_dt_t1 < 0.0):
+        t = t1
+    elif (dist_dt_t2 < 0.0):
+        t = t2
     else:
-        t1 = (-B + np.sqrt(discr)) / (2 * A)
-        t2 = (-B - np.sqrt(discr)) / (2 * A)
-    
-    t = 0
-    if collisionType == CollisionType.EARLIEST:
-        if max(t1, t2) < 0.0:
-            return (np.Inf, pa, pb)
-        else:
-            t = min(t1, t2) if min(t1, t2) >= 0.0 else max(t1, t2)
-    
-    elif collisionType == CollisionType.CLOSEST:
-        t = t1 if abs(t1) < abs(t2) else t2
+        raise Exception("Undefined collision, should not happen") 
         
+    # Discard any time smaller than minus the time it takes to cover r/2
+    # This allows small negative time when correcting a collision with gravity pull
+    # However it discards collision solution at negative time _after_ an actual collision and speed reflexion
+    tMin = - abs(t1 - t2) / 2
+    if (t < tMin): 
+        return (np.Inf, v1, v2)
     else:
-        raise Exception("Undefined collision type") 
+        # Compute reflexion 
+        pp1 = p1 + t * v1
+        pp2 = p2 + t * v2
+        d = pp1 - pp2
+        d = d / np.linalg.norm(d)
+        n = np.array([d[1], -d[0]])        
+
+        A = np.array([n, d])
         
-    paColl = pa + t * va
-    pbColl = pb + t * vb
-    return (t, paColl, pbColl)
-    
-ballBallCollison([0,1], [1,-1], [0,-1], [1,1], 0.1, CollisionType.EARLIEST)
+        vv1 = np.matmul(A, v1)
+        vv2 = np.matmul(A, v2)
+        
+        tmp = vv1[1]
+        vv1[1] = vv2[1]
+        vv2[1] = tmp
+
+        vvv1 = np.matmul(A.transpose(), vv1)
+        vvv2 = np.matmul(A.transpose(), vv2)
+        return (t, vvv1, vvv2)
 
 
-class CollisionBand(Enum):
-    RIGHT = 0
-    TOP = 1
-    LEFT = 2
-    BOTTOM = 3
-    NONE = 4
+def ballBallCollison(ball1, ball2, gravityOn):
+    (t, v1, v2) = ballBallCollisonNoGravity(ball1, ball2)
+    if t == np.Inf or not gravityOn:
+        return (t, v1, v2) 
+    # correction by computing new collision from corrected end-trajectory
+    t1, pos1, spd1 = ball1.solution(t, True)
+    t2, pos2, spd2 = ball2.solution(t, True)
+    ball1New = ball(pos1[:,-1], spd1[:,-1], ball1.R, ball1.idx+10)
+    ball2New = ball(pos2[:,-1], spd2[:,-1], ball2.R, ball2.idx+10)
+    (tCorr, v1Corr, v2Corr) = ballBallCollisonNoGravity(ball1New, ball2New)
+    return (t + tCorr, v1Corr, v2Corr)
     
-# collision time and position between ball and band on 2Wx2H billard centered at (0,0)
-def ballBandCollision(p, v, W, H, collisionType, ignoreBand = CollisionBand.NONE):
-    p = np.asarray(p)
-    v = np.asarray(v)
-    
+
+# Collision between ball and band
+def ballBandCollisionNoGravity(ball1):
+    p = ball1.p0
+    v = ball1.v
     if (np.linalg.norm(v) == 0.0):
-        return (np.Inf, p, [0,1], CollisionBand.NONE)
-    
-    # Find intersection with edge defined by position q and direction d
-    def intersection(q, d):
-        q = np.asarray(q)
-        d = np.asarray(d)
-        A = np.array([v, -d]).transpose()
-        if (np.linalg.det(A) == 0.0):
-            return (np.array([np.nan, np.nan]), np.Inf)
-        b = q - p
-        x = np.linalg.solve(A, b)
-        tSol = x[0]
-        pSol = p + v * tSol
-        return (pSol, tSol)
-    
-    pRIGHT,  tRIGHT  = intersection([ W,  0], [0,1])
-    pTOP,    tTOP    = intersection([ 0,  H], [1,0])
-    pLEFT,   tLEFT   = intersection([-W,  0], [0,1])
-    pBOTTOM, tBOTTOM = intersection([ 0, -H], [1,0])
-    
-    if ignoreBand == CollisionBand.RIGHT:
-        tRIGHT = np.Inf
-    elif ignoreBand == CollisionBand.TOP:
-        tTOP = np.Inf
-    elif ignoreBand == CollisionBand.LEFT:
-        tLEFT = np.Inf
-    elif ignoreBand == CollisionBand.BOTTOM:
-        tBOTTOM = np.Inf
-    
-    tList = np.array([tRIGHT, tTOP, tLEFT, tBOTTOM])
-    typeList = [CollisionBand.RIGHT, CollisionBand.TOP, CollisionBand.LEFT, CollisionBand.BOTTOM]
-    
-    indMin = -1
-    t = 0
-    band = CollisionBand.NONE
-    if collisionType == CollisionType.EARLIEST:       
-        tList[tList <= 0] = np.Inf
-        indMin = np.where(tList == np.amin(tList))[0][0]
-    else: # CLOSEST
-        tListAbs = np.abs(tList)
-        indMin = np.where(tListAbs == np.amin(tListAbs))[0][0]
-        
-    t = tList[indMin]
-    band = typeList[indMin]
-        
-    if (t < np.Inf):
-        pColl = p + v * t
+        return (np.Inf, v)
+    # Horizontal time
+    tH = 0.0
+    if v[0] == 0.0:
+        tH = np.Inf
     else:
-        pColl = p
-            
-    if ((indMin == 0) or (indMin == 2)):
-        return (t, pColl, [0,1], band)
+        tH = (W - p[0]) / v[0] if v[0] > 0.0 else (-W - p[0]) / v[0]
+    # Verical time
+    tV = 0.0
+    if v[1] == 0.0:
+        tV = np.Inf
     else:
-        return (t, pColl, [1,0], band)
+        tV = (H - p[1]) / v[1] if v[1] > 0.0 else (-H - p[1]) / v[1]
+    # Keep minimal time
+    vv = v.copy()
+    if tH < tV:
+        vv[0] = -vv[0]
+        return (tH, vv)
+    else:
+        vv[1] = -vv[1]
+        return (tV, vv)
     
-       
     
-p = np.array([0.1, 0.1])
-v = np.array([0.8, 0.1])
-W = 0.4
-H = 0.7
-ballBandCollision(p, v, W, H, CollisionType.EARLIEST)    
-
-
-def speedReflexionBand(v, ax):
-    v = np.asarray(v)
-    ax = np.asarray(ax)
-    ax = ax / np.linalg.norm(ax)
-    n = np.array([ax[1], -ax[0]])
-    A1 = np.array([ax, n]).transpose()
-    A2 = np.array([ax, -n])
-    return np.matmul(A1, np.matmul(A2,v))
-
-def speedReflexionBallBall(va, vb, ax):
-    va = np.asarray(va)
-    vb = np.asarray(vb)
-    ax = np.asarray(ax)
-    ax = ax / np.linalg.norm(ax)
-    n = np.array([ax[1], -ax[0]])
-    A1 = np.array([ax, n]).transpose()
-    
-    va1 = np.matmul(A1, va)
-    vb1 = np.matmul(A1, vb)
-    
-    tmp = va1[1]
-    va1[1] = vb1[1]
-    vb1[1] = tmp
-    
-    A2 = np.array([ax, n])
-    return (np.matmul(A2, va1), np.matmul(A2, vb1))
-
-
-class ball:
-    def __init__(self, p0 = [0,0], v = [0,0], R = 60/1000):
-        self.p0 = np.asarray(p0)
-        self.v = np.asarray(v)
-        self.R = R
-
-
-class CollisionCase(Enum):
-    BALLBALL = 0
-    BALLBAND = 1
-    NONE = 2
-
+def ballBandCollision(ball1, gravityOn):
+    (t, v) = ballBandCollisionNoGravity(ball1)
+    if t == np.Inf or not gravityOn:
+        return (t, v)
+    # correction by computing new collision from corrected end-trajectory
+    t1, pos1, spd1 = ball1.solution(t, True)
+    ball1New = ball(pos1[:,-1], spd1[:,-1], ball1.R, ball1.idx)
+    (tCorr, vCorr) = ballBandCollisionNoGravity(ball1New)
+    return (t + tCorr, vCorr)
     
 class billard:
-    def __init__(self, W = 1.3/2, H = 2.5/2, c = [1.5, 0.0], M = 80.0, G = 0*6.67e-11, R = 60/1000/2):
-        self.W = W
-        self.H = H
-        self.c = np.asarray(c) # player mass position
-        self.M = M # player mass
-        self.G = G
-        self.R = R
+    def __init__(self, gravityOn = False):
+        self.gravityOn = gravityOn
         # balls
-        self.balls = [ball([0*R,-H/2], [0,2], R)] # white ball
-        self.lastCollidingBallsInd = {}
-        self.lastBandHit = CollisionBand.NONE
-        self.lastCollisionCase = CollisionCase.NONE
-        n = 2
+        self.balls = [ball([-W/2, 0.0*R], [2,0], R, 0)] # white ball
+        n = 5
         d = 1.1 * 2 * R
-        y = 0
+        x = 0
+        idx = 1
         for k in range(1,n+1):
-            x0 = -d * (k - 1) / 2
+            y0 = -d * (k - 1) / 2
             for q in range(k):
-                pos = [x0+q*d, y + q*1e-8] # avoid simultaneous collisions
-                b = ball(pos, [0,0], R)
+                pos = [x + q*1e-8, y0+q*d] # avoid simultaneous collisions
+                b = ball(pos, [0,0], R, idx)
                 self.balls.append(b)
-            y += np.sqrt(3/4) * d
+                idx = idx + 1
+            x += np.sqrt(3/4) * d
         # solutions
         self.solutionTime = np.zeros((0))
         self.solutionPos = np.zeros((len(self.balls), 2, 0))
-                
-    def ballBallCollison(self, ba, bb):
-        A =  np.array([[0,1],[-1,0]])
-        # Collision between balls with gravity
-        eps = self.G * self.M
-        collNoGrav = ballBallCollison(ba.p0, ba.v, bb.p0, bb.v, self.R, CollisionType.EARLIEST) # returns (t, paColl, pbColl)
-        if collNoGrav[0] == np.Inf:
-            return (np.Inf, copy(ba), copy(bb))
-        else:
-            if eps == 0.0: # no gravity effect
-                T = collNoGrav[0] 
-                baEnd = copy(ba)
-                bbEnd = copy(bb)
-                baEnd.p0 = collNoGrav[1]
-                bbEnd.p0 = collNoGrav[2]
-                baEnd.v, bbEnd.v = speedReflexionBallBall(baEnd.v, bbEnd.v, np.matmul(A, bbEnd.p0 - baEnd.p0))
-                return (T, baEnd, bbEnd)
-            else:
-                (T, pa, pb) = collNoGrav # collision approximated without gravity
-                _, dpa, dva = simulate(ba.p0, ba.v, self.c, T) # returns (time, pos, speed)
-                _, dpb, dvb = simulate(bb.p0, bb.v, self.c, T) # returns (time, pos, speed)
-                pa += eps * dpa[:,-1] # corrected position a
-                pb += eps * dpb[:,-1] # corrected position b
-                va = ba.v + eps * dva[:,-1] # corrected speed a
-                vb = bb.v + eps * dvb[:,-1] # corrected speed b
-                TCorr, pa, pb = ballBallCollison(pa, pb, va, vb, self.R, CollisionType.CLOSEST) # collision correction
-                if TCorr == np.Inf:
-                    return (np.Inf, copy(ba), copy(bb))
-                T += TCorr
-                baEnd = copy(ba)
-                bbEnd = copy(bb)
-                baEnd.p0 = pa
-                bbEnd.p0 = pb
-                baEnd.v = va
-                bbEnd.v = vb
-                baEnd.v, bbEnd.v = speedReflexionBallBall(baEnd.v, bbEnd.v, np.matmul(A, bbEnd.p0 - baEnd.p0))
-                return (T, baEnd, bbEnd)
-            
-    def ballBandCollision(self, b):
-        # Collision against band with gravity
-        eps = self.G * self.M
-        T, pColl, ax, band = ballBandCollision(b.p0, b.v, self.W, self.H, CollisionType.EARLIEST, CollisionBand.NONE)#self.lastBandHit)
-        if T == np.Inf:
-            return (np.Inf, copy(b), CollisionBand.NONE)
-        _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
-        p = pColl + eps * dp[:,-1] # corrected position a
-        v = b.v + eps * dv[:,-1]
         
-        if eps > 0:
-            TCorr, pColl, ax, _ = ballBandCollision(p, v, self.W, self.H, CollisionType.CLOSEST, CollisionBand.NONE)
-            T += TCorr
-            
-        bEnd = copy(b)
-        bEnd.p0 = pColl
-        bEnd.v = speedReflexionBand(b.v, ax)
-        
-        return (T, bEnd, band)
-    
     def getFirstBallBallCollision(self):
         n = len(self.balls)
-        Tmatrix = np.zeros((n,n)) + np.Inf
+        zv = np.array([0.0, 0.0])
+        Tmin = np.Inf
+        kMin , lMin = 0, 0
+        v1Min , v2Min = zv, zv
         for k in range(n):
             for l in range(k):
-                if not (({k,l} == self.lastCollidingBallsInd) and (self.lastCollisionCase == CollisionCase.BALLBALL)):
-                    Tmatrix[k,l],_ ,_ = self.ballBallCollison(self.balls[k], self.balls[l])
-        ind = np.where(Tmatrix == np.amin(Tmatrix))
-        k = ind[0][0]
-        l = ind[1][0]
-        return (Tmatrix[k,l], l, k)
+                (t, v1, v2) = ballBallCollison(self.balls[k], self.balls[l], self.gravityOn)
+                #print("{l,k}", l," ", k, "  ", t)
+                if t < Tmin:
+                    Tmin = t
+                    kMin, lMin = k, l
+                    v1Min, v2Min = v1, v2
+        return (Tmin, kMin, lMin, v1Min, v2Min)
     
     def getFirstBallBandCollision(self):
         n = len(self.balls)
-        Tlist = np.zeros((n)) + np.Inf
-        bandList = [CollisionBand.NONE]*n
+        vMin = np.array([0.0, 0.0])
+        Tmin = np.Inf
+        kMin = 0
         for k in range(n):
-            Tlist[k], _, bandList[k] = self.ballBandCollision(self.balls[k])
-            if (k in self.lastCollidingBallsInd) and (self.lastCollisionCase == CollisionCase.BALLBAND) and (bandList[k] == self.lastBandHit):
-                Tlist[k] = np.Inf
-        ind = np.where(Tlist == np.amin(Tlist))
-        k = ind[0][0]
-        return (Tlist[k], k, bandList[k])
-    
-    def propagateSolutions(self, T):
-        N = 20       
-        eps = self.G * self.M
-        tEval = np.linspace(0, T, N)
+            (t, v) = ballBandCollision(self.balls[k], self.gravityOn)
+            #print("{k}", k,"  ", t)
+            if t < Tmin:
+                Tmin = t
+                vMin = v
+                kMin = k
+        return (Tmin, kMin, vMin)
+                    
+    def goToNextCollision(self):
+        n = len(self.balls)
+        
+        # get first collision assuming no gravity
+        (Tminbb, kbb, lbb, v1Minbb, v2Minbb) = self.getFirstBallBallCollision()
+        (Tminb, kb, vMinb) = self.getFirstBallBandCollision()
+        Tmin = min(Tminbb, Tminb)
+        
+        if Tminbb < Tminb:
+            print("Tmin = %f (ball-ball) (%d,%d)" % (Tmin, kbb, lbb))
+        else:
+            print("Tmin = %f (band) (%d)" % (Tmin, kb))
+        
+        if Tmin == np.Inf:
+            raise Exception("No collision, should not happen") 
+        
+        # Propagate all solutions            
+        N = 20
+        tEval = np.linspace(0.0, Tmin, N)
         newPos = np.zeros((len(self.balls), 2, N))
-        for k in range(len(self.balls)):
-            b = self.balls[k]
-            (t, posGrav, spdGrav) = simulate(b.p0, b.v, self.c, tEval)
-            pos = np.outer(b.p0, np.ones((N))) + np.outer(b.v, t) + eps * posGrav
-            newPos[k,:,:] = pos;
+        for k in range(n):
+            t, posk, spdk = self.balls[k].propagate(tEval, self.gravityOn)
+            newPos[k,:,:] = posk
             
         if len(self.solutionTime) == 0:
             self.solutionTime =  tEval
             self.solutionPos = newPos
         else:
             self.solutionTime = np.append(self.solutionTime, tEval[1:] + self.solutionTime[-1], axis = 0)
-            self.solutionPos = np.append(self.solutionPos, newPos[:,:,1:], axis = 2)               
-    
-    def goToNextBallsState(self):
-        (Tbb, lbb, kbb) = self.getFirstBallBallCollision()
-        (Tb, kb, band) = self.getFirstBallBandCollision()
-        Tmin = min(Tbb, Tb)
-        
-        # Propagate solutions before updating state
-        self.propagateSolutions(Tmin)
-        
-        # Update state of colliding balls
-        if Tbb < Tb:
-            T , ba, bb = self.ballBallCollison(self.balls[kbb], self.balls[lbb])
-            self.balls[kbb].p0 = ba.p0
-            self.balls[kbb].v = ba.v
-            self.balls[lbb].p0 = bb.p0
-            self.balls[lbb].v = bb.v
-            self.lastCollidingBallsInd = {kbb, lbb}
-            self.lastCollisionCase = CollisionCase.BALLBALL
-            self.lastBandHit = CollisionBand.NONE
-            print("Collision time : ",T, "(ball-ball)")
+            self.solutionPos = np.append(self.solutionPos, newPos[:,:,1:], axis = 2) 
+            
+        # apply collision reflection
+        if Tminbb < Tminb:
+            self.balls[kbb].v = v1Minbb
+            self.balls[lbb].v = v2Minbb
         else:
-            T, b, band = self.ballBandCollision(self.balls[kb])
-            self.balls[kb].p0 = b.p0
-            self.balls[kb].v = b.v
-            self.lastCollidingBallsInd = {kb}
-            self.lastCollisionCase = CollisionCase.BALLBAND
-            self.lastBandHit = band
-            print("Collision time : ",T,  "(ball-band)", band)
+            self.balls[kb].v = vMinb
+            
+    def run(self, Ttot, frameRate = fps):
+        collisionCounter = [[0.0,0]]
+        self.goToNextCollision()  
         
-        # Update other balls state
-        for k in range(len(self.balls)):
-            if k not in self.lastCollidingBallsInd:
-                eps = self.G * self.M
-                b = self.balls[k]
-                _, dp, dv = simulate(b.p0, b.v, self.c, T) # returns (time, pos, speed)
-                b.p0 += T * b.v + eps * dp[:,-1] # corrected position a
-                b.v = b.v + eps * dv[:,-1]
-                
-    def run(self, Ttot, frameRate = 25):
-        self.goToNextBallsState()
+        collisionCounter += [[self.solutionTime[-1], collisionCounter[-1][1]+1]]
 
         while self.solutionTime[-1] < Ttot:
-            self.goToNextBallsState()
+            self.goToNextCollision()
+            collisionCounter += [[self.solutionTime[-1], collisionCounter[-1][1]+1]]
+        collisionCounter = np.array(collisionCounter)
 
         tMax = self.solutionTime[-1]
         nFrames = int(np.floor(tMax * frameRate))
@@ -414,14 +338,9 @@ class billard:
         for n in range(len(self.balls)):
             for k in range(2):
                 self.framesPos[n,k,:] = np.interp(self.framesTime, self.solutionTime, self.solutionPos[n,k,:])
-        
-        
-
-    
-b = billard()
-
-b.getFirstBallBallCollision()
-b.getFirstBallBandCollision()
+        collisionCounter = np.interp(self.framesTime, collisionCounter[:,0], collisionCounter[:,1])
+        self.framesCollisionCounter = collisionCounter.astype('int')
+                    
 
 def get_cmap(n, name='hsv'):
     '''Returns a function that maps each index in 0, 1, ..., n-1 to a distinct 
@@ -431,9 +350,9 @@ def get_cmap(n, name='hsv'):
 class animBillard:
     def __init__(self, billard):
         self.billard = billard
-        self.W = billard.W
-        self.H = billard.H
-        self.R = billard.R
+        self.W = W
+        self.H = H
+        self.R = R
         self.nBalls = len(billard.balls)
         self.pos = np.zeros((2, self.nBalls))
         self.spd = np.zeros((2, self.nBalls))
@@ -441,7 +360,11 @@ class animBillard:
             self.pos[:,k] = billard.balls[k].p0
             self.spd[:,k] = billard.balls[k].v
         self.fig, self.ax = plt.subplots()
-        self.frames = range(len(billard.solutionTime))
+        self.frames = range(len(billard.framesTime))
+        
+        self.fig.set_size_inches(19.20, 10.80, True)
+        self.fig.set_dpi(100)
+        self.fig.tight_layout()
     
     def initAnim(self):
         self.ax.clear()
@@ -449,71 +372,86 @@ class animBillard:
         self.ax.set_aspect(aspect='equal', adjustable='box')
         margin = 4 * self.R
         self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
-        self.ax.set_ylim(bottom=-self.H - margin, top=self.H + margin)
+        self.ax.set_ylim(bottom=-self.H - margin - 0.2 - 5*R, top=self.H + margin)
         self.ax.grid(b=True)
-        self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.2,.9,.2])
+        self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.1,.5,.1])
         self.ax.add_patch(self.table)
         self.ballsCirc = []
         self.spdVec = []
         cmap = get_cmap(2*self.nBalls)
         for k in range(self.nBalls):
-            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=cmap(k)))
+            if k < self.nBalls / 2:
+                col = [0.2,0.8,0.8]
+            else:
+                col = [0.8,0.8,0.2]
+            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=col))
             self.ax.add_patch(self.ballsCirc[-1])
-        # for k in range(self.nBalls):
-        #     rho = 0.1
-        #     self.spdVec.append(plt.Arrow(self.pos[0,k],self.pos[1,k], rho*self.spd[0,k], rho*self.spd[1,k], width=.05, color=[.8,.2,.2]))
-        #     self.ax.add_patch(self.spdVec[-1])
+            
+        self.player = plt.Circle(c, radius=4*self.R, color = [0.2,0.8,0.8])
+        self.ax.add_patch(self.player)
+        
+        self.playertxt=plt.text(  # position text relative to Figure
+            c[0], c[1], '%dkg' % int(M),
+            ha='center', va='center',
+            fontsize=25, 
+            color = [0,0,0],
+            usetex=True)
+        self.ax.add_artist(self.playertxt)
+        
+        self.txt=plt.text(  # position text relative to Figure
+            0, 1.1*H, 'Collisions %d' % 0,
+            ha='center', va='center',
+            fontsize=25, 
+            color = 'xkcd:yellow orange',
+            usetex=True)
+        self.ax.add_artist(self.txt)
+        self.ax.grid(b=False)
+        self.ax.set_axis_off()
+        self.fig.patch.set_facecolor([0.15,0.05,0.1])
             
     def update(self, frame):
         for k in range(len(self.ballsCirc)):
             self.ballsCirc[k].set_center(self.billard.framesPos[k,:,frame])
+        nCol = self.billard.framesCollisionCounter[frame]
+        self.txt.set_text('Collisions %d' % nCol)
+            
             
     def anim(self):
-        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=25)
+        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=1000, interval=20)
 
             
-b = billard()
-b.run(15.0)
-ab = animBillard(b)
-ab.initAnim()
-an = ab.anim()
+def joinBillard(b1, b2):
+    b = billard()
+    b.balls = b1.balls + b2.balls
+    
+    nFrames = len(b1.framesTime)
+    T = min(b1.solutionTime[-1], b2.solutionTime[-1])
+    b.framesCollisionCounter = b1.framesCollisionCounter
+    b.framesTime = np.linspace(0, T, nFrames)
+    b.framesPos = np.zeros((len(b.balls), 2, nFrames))
+    for n in range(len(b1.balls)):
+        for k in range(2):
+            n1 = n
+            n2 = n + len(b1.balls)
+            b.framesPos[n1,k,:] = np.interp(b.framesTime, b1.solutionTime, b1.solutionPos[n,k,:])
+            b.framesPos[n2,k,:] = np.interp(b.framesTime, b2.solutionTime, b2.solutionPos[n,k,:])
+    return b
+
+Tsim = 20.0
+bNG = billard(gravityOn = False)
+bNG.run(Tsim)
+bG = billard(gravityOn = True)
+bG.run(Tsim)
+
+bBoth = joinBillard(bG, bNG)
+abBoth = animBillard(bBoth)
+abBoth.initAnim()
+animBoth = abBoth.anim()    
 
 
-# b2 = billard()
-# ab = animBillard(b2)
-# ab.initAnim()
 
-# b2.goToNextBallsState()
-# ab2 = animBillard(b2)
-# ab2.initAnim()
-
-# b2.goToNextBallsState()
-# ab3 = animBillard(b2)
-# ab3.initAnim()
-
-# b2.goToNextBallsState()
-# ab4 = animBillard(b2)
-# ab4.initAnim()
-
-# b2.goToNextBallsState()
-# ab5 = animBillard(b2)
-# ab5.initAnim()
-
-# b2.goToNextBallsState()
-# ab5 = animBillard(b2)
-# ab5.initAnim()
-
-# b2.goToNextBallsState()
-# ab5 = animBillard(b2)
-# ab5.initAnim()
-
-# b2.goToNextBallsState()
-# ab5 = animBillard(b2)
-# ab5.initAnim()
-
-# b2.goToNextBallsState()
-# ab5 = animBillard(b2)
-# ab5.initAnim()
-
-# plt.plot(b2.solutionPos[0,0,:], b2.solutionPos[0,1,:])
-# plt.plot(b2.solutionPos[1,0,:], b2.solutionPos[1,1,:])
+if False:
+    brate = 5000
+    fileName = "gravitational_billard_%dfps.mp4" % fps
+    writer = animation.FFMpegWriter(fps=fps, metadata=dict(artist='Ugarte'), bitrate=brate)
+    animBoth.save(fileName, writer=writer,dpi=100, savefig_kwargs=dict(facecolor=(0,0,0)))      
