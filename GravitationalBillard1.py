@@ -51,7 +51,7 @@ def simulate(p0, v0, c, T):
         tSpan = [T[0], T[-1]]
         tEval = T
     if tSpan[0] != tSpan[1]:
-        ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval, max_step = 0.01)
+        ivpSol = integrate.solve_ivp(fInt, tSpan, z0, t_eval = tEval)
         return (ivpSol.t, ivpSol.y[0:2,:], ivpSol.y[2:4,:])
     else:
         pp = np.zeros((2,1))
@@ -76,7 +76,7 @@ plt.axis('equal')
 
 
 G = 6.67e-11        # gravitation constant
-M = 0.0            # player mass
+M = 80.0            # player mass
 c = [1.5, 0.0]      # player position
 
 W = 1.3/2           # table half width
@@ -152,8 +152,8 @@ def ballBallCollisonNoGravity(ball1, ball2):
     # Discard any time smaller than minus the time it takes to cover r/2
     # This allows small negative time when correcting a collision with gravity pull
     # However it discards collision solution at negative time _after_ an actual collision and speed reflexion
-    tMin = -r / (2 * np.linalg.norm(w))
-    if (t < tMin):
+    tMin = - abs(t1 - t2) / 2
+    if (t < tMin): 
         return (np.Inf, v1, v2)
     else:
         # Compute reflexion 
@@ -232,9 +232,9 @@ class billard:
     def __init__(self, gravityOn = False):
         self.gravityOn = gravityOn
         # balls
-        self.balls = [ball([0.1*R,-H/2], [0,2], R, 0)] # white ball
-        n = 3
-        d = 1.5 * 2 * R
+        self.balls = [ball([0.*R,-H/2], [0,2], R, 0)] # white ball
+        n = 4
+        d = 1.1 * 2 * R
         y = 0
         idx = 1
         for k in range(1,n+1):
@@ -319,33 +319,10 @@ class billard:
             self.balls[kb].v = vMinb
             
     def run(self, Ttot, frameRate = 25):
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
-        self.goToNextCollision()
+        self.goToNextCollision()     
 
-        #while self.solutionTime[-1] < Ttot:
-        #    self.goToNextCollision()
+        while self.solutionTime[-1] < Ttot:
+            self.goToNextCollision()
 
         tMax = self.solutionTime[-1]
         nFrames = int(np.floor(tMax * frameRate))
@@ -354,7 +331,6 @@ class billard:
         for n in range(len(self.balls)):
             for k in range(2):
                 self.framesPos[n,k,:] = np.interp(self.framesTime, self.solutionTime, self.solutionPos[n,k,:])
-        
                     
 
 def get_cmap(n, name='hsv'):
@@ -403,11 +379,11 @@ class animBillard:
             self.ballsCirc[k].set_center(self.billard.framesPos[k,:,frame])
             
     def anim(self):
-        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=25)
+        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=0)
 
             
-b = billard()
-b.run(10.0)
+b = billard(gravityOn = False)
+b.run(3.0)
 ab = animBillard(b)
 ab.initAnim()
 an = ab.anim()          
