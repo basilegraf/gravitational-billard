@@ -138,7 +138,7 @@ def ballBallCollisonNoGravity(ball1, ball2):
     dist_dt_t1 = 2 * (np.dot(d, w) + np.dot(w, w) * t1)
     dist_dt_t2 = 2 * (np.dot(d, w) + np.dot(w, w) * t2)
     
-    print("(%d,%d)-Distance derivatives d(%f) = %f, d(%f) = %f, norm(w) = %f" % (ball1.idx, ball2.idx, t1, dist_dt_t1, t2, dist_dt_t2, np.linalg.norm(w)))
+    #print("(%d,%d)-Distance derivatives d(%f) = %f, d(%f) = %f, norm(w) = %f" % (ball1.idx, ball2.idx, t1, dist_dt_t1, t2, dist_dt_t2, np.linalg.norm(w)))
     
     # collision is the solution with negative distance derivative
     t = np.Inf
@@ -224,16 +224,16 @@ def ballBandCollision(ball1, gravityOn):
         return (t, v)
     # correction by computing new collision from corrected end-trajectory
     t1, pos1, spd1 = ball1.solution(t, True)
-    ball1New = ball(pos1[:,-1], spd1[:,-1], ball1.R)
-    (tCorr, vCorr) = ballBandCollisionNoGravity(ball1)
+    ball1New = ball(pos1[:,-1], spd1[:,-1], ball1.R, ball1.idx)
+    (tCorr, vCorr) = ballBandCollisionNoGravity(ball1New)
     return (t + tCorr, vCorr)
     
 class billard:
     def __init__(self, gravityOn = False):
         self.gravityOn = gravityOn
         # balls
-        self.balls = [ball([0.*R,-H/2], [0,2], R, 0)] # white ball
-        n = 4
+        self.balls = [ball([0.1*R,-H/2], [0,2], R, 0)] # white ball
+        n = 5
         d = 1.1 * 2 * R
         y = 0
         idx = 1
@@ -351,7 +351,7 @@ class animBillard:
             self.pos[:,k] = billard.balls[k].p0
             self.spd[:,k] = billard.balls[k].v
         self.fig, self.ax = plt.subplots()
-        self.frames = range(len(billard.solutionTime))
+        self.frames = range(len(billard.framesTime))
     
     def initAnim(self):
         self.ax.clear()
@@ -361,13 +361,17 @@ class animBillard:
         self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
         self.ax.set_ylim(bottom=-self.H - margin, top=self.H + margin)
         self.ax.grid(b=True)
-        self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.2,.9,.2])
+        self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.1,.5,.1])
         self.ax.add_patch(self.table)
         self.ballsCirc = []
         self.spdVec = []
         cmap = get_cmap(2*self.nBalls)
         for k in range(self.nBalls):
-            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=cmap(k)))
+            if k < self.nBalls / 2:
+                col = [0.2,0.8,0.8]
+            else:
+                col = [0.8,0.8,0.2]
+            self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=col))
             self.ax.add_patch(self.ballsCirc[-1])
         # for k in range(self.nBalls):
         #     rho = 0.1
@@ -382,8 +386,39 @@ class animBillard:
         return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=0)
 
             
-b = billard(gravityOn = False)
-b.run(3.0)
-ab = animBillard(b)
-ab.initAnim()
-an = ab.anim()          
+def joinBillard(b1, b2):
+    b = billard()
+    b.balls = b1.balls + b2.balls
+    
+    nFrames = len(b1.framesTime)
+    T = min(b1.solutionTime[-1], b2.solutionTime[-1])
+    b.framesTime = np.linspace(0, T, nFrames)
+    b.framesPos = np.zeros((len(b.balls), 2, nFrames))
+    for n in range(len(b1.balls)):
+        for k in range(2):
+            n1 = n
+            n2 = n + len(b1.balls)
+            b.framesPos[n1,k,:] = np.interp(b.framesTime, b1.solutionTime, b1.solutionPos[n,k,:])
+            b.framesPos[n2,k,:] = np.interp(b.framesTime, b2.solutionTime, b2.solutionPos[n,k,:])
+    return b
+
+Tsim = 15.0
+bNG = billard(gravityOn = False)
+bNG.run(Tsim)
+bG = billard(gravityOn = True)
+bG.run(Tsim)
+
+bBoth = joinBillard(bNG, bG)
+abBoth = animBillard(bBoth)
+abBoth.initAnim()
+animBoth = abBoth.anim()    
+
+
+
+# abNG = animBillard(bNG)
+# abNG.initAnim()
+# anNG = abNG.anim()     
+
+# ab = animBillard(bG)
+# ab.initAnim()
+# an = ab.anim()          
