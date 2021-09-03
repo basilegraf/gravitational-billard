@@ -13,6 +13,7 @@ import scipy.integrate as integrate
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import matplotlib.animation as animation
 from copy import copy
 
 # Use qt for animations
@@ -78,10 +79,10 @@ plt.axis('equal')
 G = 6.67e-11        # gravitation constant
 M = 80.0            # player mass
 
-W = 1.3/2           # table half width
-H = 2.5/2           # table half height
+H = 1.3/2           # table half width
+W = 2.5/2          # table half height
 R = 60/1000/2       # ball radius
-c = [W + 0.2, 0.0]      # player position
+c = [0.0, -H - 0.2]      # player position
 
 
 
@@ -232,19 +233,19 @@ class billard:
     def __init__(self, gravityOn = False):
         self.gravityOn = gravityOn
         # balls
-        self.balls = [ball([0.0*R,-H/2], [0,2], R, 0)] # white ball
+        self.balls = [ball([-W/2, 0.0*R], [2,0], R, 0)] # white ball
         n = 5
         d = 1.1 * 2 * R
-        y = 0
+        x = 0
         idx = 1
         for k in range(1,n+1):
-            x0 = -d * (k - 1) / 2
+            y0 = -d * (k - 1) / 2
             for q in range(k):
-                pos = [x0+q*d, y + q*1e-8] # avoid simultaneous collisions
+                pos = [x + q*1e-8, y0+q*d] # avoid simultaneous collisions
                 b = ball(pos, [0,0], R, idx)
                 self.balls.append(b)
                 idx = idx + 1
-            y += np.sqrt(3/4) * d
+            x += np.sqrt(3/4) * d
         # solutions
         self.solutionTime = np.zeros((0))
         self.solutionPos = np.zeros((len(self.balls), 2, 0))
@@ -359,14 +360,18 @@ class animBillard:
             self.spd[:,k] = billard.balls[k].v
         self.fig, self.ax = plt.subplots()
         self.frames = range(len(billard.framesTime))
+        
+        self.fig.set_size_inches(19.20, 10.80, True)
+        self.fig.set_dpi(100)
+        self.fig.tight_layout()
     
     def initAnim(self):
         self.ax.clear()
         self.ln, = self.ax.plot([], [])
         self.ax.set_aspect(aspect='equal', adjustable='box')
         margin = 4 * self.R
-        self.ax.set_xlim(left=-self.W - margin, right=self.W + margin + 0.2 + 5*R)
-        self.ax.set_ylim(bottom=-self.H - margin, top=self.H + margin)
+        self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
+        self.ax.set_ylim(bottom=-self.H - margin - 0.2 - 5*R, top=self.H + margin)
         self.ax.grid(b=True)
         self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.1,.5,.1])
         self.ax.add_patch(self.table)
@@ -381,7 +386,7 @@ class animBillard:
             self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=col))
             self.ax.add_patch(self.ballsCirc[-1])
             
-        self.player = plt.Circle(c, radius=5*self.R, color = [0.2,0.8,0.8])
+        self.player = plt.Circle(c, radius=4*self.R, color = [0.2,0.8,0.8])
         self.ax.add_patch(self.player)
         
         self.playertxt=plt.text(  # position text relative to Figure
@@ -411,7 +416,7 @@ class animBillard:
             
             
     def anim(self):
-        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=0, interval=0)
+        return FuncAnimation(self.fig, self.update, self.frames, init_func=self.initAnim, blit=False, repeat_delay=1000, interval=20)
 
             
 def joinBillard(b1, b2):
@@ -431,7 +436,7 @@ def joinBillard(b1, b2):
             b.framesPos[n2,k,:] = np.interp(b.framesTime, b2.solutionTime, b2.solutionPos[n,k,:])
     return b
 
-Tsim = 15.0
+Tsim = 20.0
 bNG = billard(gravityOn = False)
 bNG.run(Tsim)
 bG = billard(gravityOn = True)
@@ -444,10 +449,8 @@ animBoth = abBoth.anim()
 
 
 
-# abNG = animBillard(bNG)
-# abNG.initAnim()
-# anNG = abNG.anim()     
-
-# ab = animBillard(bG)
-# ab.initAnim()
-# an = ab.anim()          
+if True:
+    brate = 5000
+    fileName = "gravitational_billard.mp4"
+    writer = animation.FFMpegWriter(fps=25, metadata=dict(artist='Ugarte'), bitrate=brate)
+    animBoth.save(fileName, writer=writer,dpi=100, savefig_kwargs=dict(facecolor=(0,0,0)))      
