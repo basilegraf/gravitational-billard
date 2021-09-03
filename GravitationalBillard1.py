@@ -77,11 +77,11 @@ plt.axis('equal')
 
 G = 6.67e-11        # gravitation constant
 M = 80.0            # player mass
-c = [1.5, 0.0]      # player position
 
 W = 1.3/2           # table half width
 H = 2.5/2           # table half height
 R = 60/1000/2       # ball radius
+c = [W + 0.2, 0.0]      # player position
 
 
 
@@ -365,7 +365,7 @@ class animBillard:
         self.ln, = self.ax.plot([], [])
         self.ax.set_aspect(aspect='equal', adjustable='box')
         margin = 4 * self.R
-        self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
+        self.ax.set_xlim(left=-self.W - margin, right=self.W + margin + 0.2 + 5*R)
         self.ax.set_ylim(bottom=-self.H - margin, top=self.H + margin)
         self.ax.grid(b=True)
         self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.1,.5,.1])
@@ -380,17 +380,28 @@ class animBillard:
                 col = [0.8,0.8,0.2]
             self.ballsCirc.append(plt.Circle(self.pos[:,k], radius=self.R, color=col))
             self.ax.add_patch(self.ballsCirc[-1])
+            
+        self.player = plt.Circle(c, radius=5*self.R, color = [0.2,0.8,0.8])
+        self.ax.add_patch(self.player)
+        
+        self.playertxt=plt.text(  # position text relative to Figure
+            c[0], c[1], '%dkg' % int(M),
+            ha='center', va='center',
+            fontsize=25, 
+            color = [0,0,0],
+            usetex=True)
+        self.ax.add_artist(self.playertxt)
         
         self.txt=plt.text(  # position text relative to Figure
-            0.5, 0.9, 'Collisions %d' % 0,
+            0, 1.1*H, 'Collisions %d' % 0,
             ha='center', va='center',
-            transform=self.fig.transFigure,
             fontsize=25, 
             color = 'xkcd:yellow orange',
             usetex=True)
         self.ax.add_artist(self.txt)
         self.ax.grid(b=False)
         self.ax.set_axis_off()
+        self.fig.patch.set_facecolor([0.15,0.05,0.1])
             
     def update(self, frame):
         for k in range(len(self.ballsCirc)):
@@ -426,7 +437,7 @@ bNG.run(Tsim)
 bG = billard(gravityOn = True)
 bG.run(Tsim)
 
-bBoth = joinBillard(bNG, bG)
+bBoth = joinBillard(bG, bNG)
 abBoth = animBillard(bBoth)
 abBoth.initAnim()
 animBoth = abBoth.anim()    
