@@ -372,7 +372,7 @@ class animBillard:
         self.ax.set_aspect(aspect='equal', adjustable='box')
         margin = 4 * self.R
         self.ax.set_xlim(left=-self.W - margin, right=self.W + margin)
-        self.ax.set_ylim(bottom=-self.H - margin - 0.2 - 5*R, top=self.H + margin)
+        self.ax.set_ylim(bottom=-self.H - margin - 0.055 - 5*R, top=self.H + margin)
         self.ax.grid(b=True)
         self.table = plt.Rectangle([-self.W-self.R,-self.H-self.R], 2*(self.W+self.R), 2*(self.H+self.R), color=[.1,.5,.1])
         self.ax.add_patch(self.table)
